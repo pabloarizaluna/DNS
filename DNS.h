@@ -29,7 +29,24 @@ typedef struct Header
 
 typedef struct Query
 {
-  char q_Name[NAME];
-  uint q_Type;
-  uint q_Class;
+  char q_name[NAME];
+  uint q_type;
+  uint q_class;
+  int length_query;
 } Query;
+
+
+void *get_in_addr(struct sockaddr *);
+int get16bits(char **);
+void put16bit(char *&buffer, unsigned int value);
+void put32bits(char **, long);
+int find(char[], char , int);
+void invert_string(char *str, char *resp);
+void decode(char *, Header *, Query *);
+void decode_header(char *, Header *);
+void decode_qname(char **, char[]);
+void resolver(FILE *, char[NAME], char[INET6_ADDRSTRLEN]);
+void redirect(char *, char[]);
+int code(char *, Header, Query, char[INET6_ADDRSTRLEN]);
+void code_hdr(char *, Header);
+void code_domain(char *&buffer, char *);
