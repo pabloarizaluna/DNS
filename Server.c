@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_flags = AI_PASSIVE;
 
-  if (getaddrinfo(NULL, "5000", &hints, &server_addr) != 0)
+  if (getaddrinfo(NULL, "53", &hints, &server_addr) != 0)
   {
     perror("Error en getaddrinfo");
     return EXIT_FAILURE;
@@ -75,9 +75,15 @@ int main(int argc, char *argv[])
     printf("listener: packet is %zu bytes long\n", sizeof(buffer));
     decode(buffer, &header, &query);
     printf("listener: packet contains \"%s\"\n", query.q_name);
-    resolver(file, query.q_name, response);
-      //redirect(query.q_name, response);
-
+    if (query.q_type == 1)
+      resolver_a(file, query.q_name, response);
+    else if (query.q_type == 12)
+    { printf("entro 12\n");
+      char aux[INET_ADDRSTRLEN], temp[NAME];
+      strcpy(temp, query.q_name);
+      invert_string(temp, aux);
+      resolver_ptr(file, aux, response);
+    }
     printf("response: %s name: %s\n", response, query.q_name);
 
     memset(buffer, 0, BUFFER_SIZE);
@@ -146,7 +152,9 @@ int find(char str[], char substr, int index)
 
 void invert_string(char *str, char *resp)
 {
-  //int pos_n = ip.(".in-addr.arpa");
+  char *pos;
+  if ((pos = strstr(str,".in-addr.arpa")) != NULL)
+    *pos = '\0';
   int length = strlen(str), index = 0, end, aux = length - 1;
   while ((end = find(str, '.', index)) != -1)
   {
@@ -164,7 +172,6 @@ void invert_string(char *str, char *resp)
     aux--;
   }
   resp[length + 1] = '\0';
-  printf("%s\n", resp);
 }
 
 void decode(char *buffer, Header *header, Query *query)
@@ -182,7 +189,6 @@ void decode(char *buffer, Header *header, Query *query)
 void decode_header(char *buffer, Header *header)
 {
   header->m_id = get16bits(&buffer);
-  printf("%d\n", header->m_id);
   uint fields = get16bits(&buffer);
   header->m_qr = fields & QR_MASK;
   header->m_opcode = fields & OPCODE_MASK;
@@ -221,7 +227,7 @@ void decode_qname(char **buffer, char name[])
     name[indice] = '\0';
 }
 
-void resolver(FILE *file, char name[NAME], char response[INET6_ADDRSTRLEN])
+void resolver_a(FILE *file, char name[NAME], char response[INET6_ADDRSTRLEN])
 {
   int found = 0;
   char buffer[LINE], *aux;
@@ -260,11 +266,52 @@ void resolver(FILE *file, char name[NAME], char response[INET6_ADDRSTRLEN])
   }*/
 }
 
+void resolver_ptr(FILE *file, char name[NAME], char response[INET6_ADDRSTRLEN])
+{
+  int found = 0;
+  char buffer[LINE], *aux;
+  struct addrinfo *results;
+
+  while (!feof(file) && !found)
+  {
+    fgets(buffer, LINE, file);
+    if (!feof(file))
+    {
+      aux = strtok(buffer, " ");
+      if (aux != NULL)
+      {
+        aux[strlen(name) - 1] = '\0';
+        name[strlen(name) - 1] = '\0';
+        if (strcmp(name, aux) == 0)
+          found = 1;
+        aux = strtok(NULL, " ");
+        if (aux != NULL)
+        {
+          aux[strlen(aux) - 1] = '\0';
+          strcpy(response, aux);
+        }
+      }
+    }
+  }
+  rewind(file);
+  if (found != 1)
+    strcpy(response, "Error");
+  /*{
+    char aux[INET_ADDRSTRLEN];
+    if (getaddrinfo(name, NULL, NULL, &results) != 0)
+    if(inet_ntop(AF_INET, get_in_addr((struct sockaddr *)&results), aux, sizeof(aux)) == NULL)
+      strcpy(response, "Error");
+    else
+      strcpy(response, aux);
+    freeaddrinfo(results);
+  }*/
+}
+
 int code(char *buffer, Header header, Query query, char response[INET6_ADDRSTRLEN])
 {
   struct sockaddr_in aux;
   unsigned long ttl = (unsigned long) 150;
-  char *begin = buffer;
+  char *begin = buffer, reverse[INET_ADDRSTRLEN];
 
   if (strcmp(response, "Error") == 0)
     header.m_rcode = 3;
@@ -283,9 +330,18 @@ int code(char *buffer, Header header, Query query, char response[INET6_ADDRSTRLE
     put16bit(buffer, query.q_type);
     put16bit(buffer, query.q_class);
     put32bit(buffer, ttl);
-    put16bit(buffer, 4);
-    inet_pton(AF_INET, response, &(aux.sin_addr));
-    put32bit(buffer, aux.sin_addr.s_addr);
+    if (query.q_type == 1)
+    {
+      put16bit(buffer, 4);
+      invert_string(response, reverse);
+      inet_pton(AF_INET, reverse, &(aux.sin_addr));
+      put32bit(buffer, aux.sin_addr.s_addr);
+    }
+    else if (query.q_type == 12)
+    {
+      put16bit(buffer, strlen(response) + 2);
+      code_domain(buffer, response);
+    }
   }
 
   return buffer - begin;
@@ -296,7 +352,7 @@ void code_hdr(char *buffer, Header header)
   put16bit(buffer, header.m_id);
 
   unsigned int fields = ((1) << 15);
-  fields += (0 << 11);
+  fields += (header.m_opcode << 11);
   fields += (header.m_aa << 10);
   fields += (header.m_tc << 9);
   fields += (header.m_rd << 8);

@@ -1,3 +1,5 @@
 216.58.192.68 www.google.com
 87.23.34.45 perra.com
 216.58.219.99 www.google.com.co
+127.0.0.1 local
+127.0.0.1 localhost
